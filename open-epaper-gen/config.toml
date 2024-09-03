@@ -1,0 +1,6 @@
+epaper_link_host = "192.168.178.71"
+
+[[tags]]
+mac = "000002186fd53b13"
+width = 296
+height = 128
