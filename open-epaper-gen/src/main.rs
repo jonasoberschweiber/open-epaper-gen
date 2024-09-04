@@ -67,6 +67,39 @@
 //! open-epaper-gen --module news-headlines --jpeg out.jpeg --width 296 --height 128
 //! ```
 //!
+//! ## Building open-epaper-gen
+//!
+//! The best way to build this is to use [xtask](https://github.com/matklad/cargo-xtask).
+//! This project uses xtask to automate copying the `resources` directory on
+//! every build, to build the Docker image, and so on. This project is tiny and
+//! xtask is likely very much overkill compared to a bunch of shell scripts --
+//! but building this was fun, so why not!
+//!
+//! To build for your local, native environment:
+//!
+//! ```
+//! cargo xtask build
+//! ```
+//!
+//! Same for running locally:
+//!
+//! ```
+//! cargo xtask run
+//! ```
+//!
+//! If you want to build for Linux x86_64 (and are not yourself running Linux
+//! x86_64):
+//!
+//! ```
+//! cargo xtask build --platform linux-x64 --release
+//! ```
+//!
+//! The `--release` is optional and works for `build` without a platform as
+//! well.
+//!
+//! You can use `cargo xtask package` to build the Docker container. `cargo
+//! xtask release` will push that container up to GHCR.
+//!
 //! ## How the Code is Organized
 //!
 //! The `main` module contains the basic application flow, argument parsing, and

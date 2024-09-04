@@ -1,18 +1,95 @@
 //! This module contains primitives for drawing an image for an ePaper tag as
 //! well as a basic layout system roughly based on what SwiftUI's doing.
 //!
-//! - Surface as the drawing surface.
-//!     - It all starts with a Surface.
-//! - Bounds
-//!     - The bounds of a view, together with a sizing hint (see HStack, VStack, Spacer)
-//! - View trait, part 1
-//!     - All primitives implement the View trait.
-//!     - More on the View trait later. For now it's just important that there's
-//!       a common basis.
-//! - Text
-//! - Image
-//! - HStack, VStack, and Spacer
-//! - Padding
+//! Everything in this module is drawn on a [Surface]. The surface itself is
+//! just a very thin wrapper around an [image::RgbImage] -- in fact, all of the
+//! other drawing primitives in here access `surface.img`, which directly
+//! exposes the [image::RgbImage].
+//!
+//! Everything else -- all the drawing primitives and layout helpers --
+//! implements the [View] trait. The most important thing about the [View] is
+//! the method `draw(&self, surface: &mut Surface, x: u32, y: u32, suggested_bounds: Bounds)`.
+//! If you want to draw a primitive or layout helper onto a surface, that's the
+//! method to use. Most of the time, you'll want to only call that method on a
+//! top-level layout helper, though.
+//!
+//! As of now, the only two drawing primitives supported are [Text] and [Image].
+//! Both are fairly straightforward to use, see their respective documentation.
+//!
+//! ## Layout
+//!
+//! The two main layout helpers are [HStack] and [VStack]. The first stacks
+//! views horizontally, the second stacks them vertically. Using those two in
+//! combination with [Spacer] allows building layouts quite easily, without
+//! having to worry about coordinates for individual UI elements.
+//!
+//! A simple combination of [HStack] and [VStack] would allow you to build a
+//! layout like this (all views are text views).
+//!
+//! ```none
+//! +------------+------------+
+//! | +--------+ | +--------+ |
+//! | | Berlin | | | London | |
+//! | +--------+ | +--------+ | (empty space here)
+//! | | 14:21  | | | 13:21  | |
+//! | +--------+ | +--------+ |
+//! +------------+------------+
+//! ```
+//!
+//! The code for this might look something like this:
+//!
+//! ```
+//! let mut screen = HStack::new();
+//!
+//! let mut berlin = VStack::new();
+//! berlin.views.push(Box::new(Text::new(String::from("Berlin"), 13.0, 0)));
+//! berlin.views.push(Box::new(Text::new(String::from("14:21"), 13.0, 0)));
+//!
+//! let mut london = VStack::new();
+//! london.views.push(Box::new(Text::new(String::from("London"), 13.0, 0)));
+//! london.views.push(Box::new(Text::new(String::from("13:21"), 13.0, 0)));
+//!
+//! screen.views.push(berlin);
+//! screen.views.push(london);
+//! ```
+//!
+//! Let's say our screen is a bit wider than in the example above, and we want
+//! to push Berlin to the left of the screen and London to the right of the
+//! screen, instead of having it all on the left hand side of the screen. We can
+//! achieve that using a [Spacer], which will use up all the available space
+//! in a stack that's not required by the other views. Using [Padding] -- which
+//! is supported by all [View]s -- we can add some extra spacing on the left and
+//! right edge.
+//!
+//! ```none
+//! +--------------+------------+--------------+
+//! |   +--------+ |            | +--------+   |
+//! |   | Berlin | |            | | London |   |
+//! |   +--------+ |  (Spacer)  | +--------+   | 
+//! |   | 14:21  | |            | | 13:21  |   |
+//! |   +--------+ |            | +--------+   |
+//! +--------------+------------+--------------+
+//! ```
+//!
+//! Again, the code for that:
+//!
+//! ```rust
+//! let mut screen = HStack::new();
+//!
+//! let mut berlin = VStack::new();
+//! berlin.views.push(Box::new(Text::new(String::from("Berlin"), 13.0, 0)));
+//! berlin.views.push(Box::new(Text::new(String::from("14:21"), 13.0, 0)));
+//! berlin.padding(Edge::Left, 10);
+//!
+//! let mut london = VStack::new();
+//! london.views.push(Box::new(Text::new(String::from("London"), 13.0, 0)));
+//! london.views.push(Box::new(Text::new(String::from("13:21"), 13.0, 0)));
+//! london.padding(Edge::Right, 10);
+//!
+//! screen.views.push(berlin);
+//! screen.views.push(Box::new(Spacer::horizontal()));
+//! screen.views.push(london);
+//! ```
 
 use fontdue::layout::{CoordinateSystem, Layout, TextStyle};
 use fontdue::{Font};
@@ -23,12 +100,17 @@ use std::ops::{Add, Sub};
 use std::fs;
 use anyhow::{Context, Result, anyhow};
 
+/// A surface to draw on. This is really just a wrapper for [image::RgbImage],
+/// which you can access using the [img] field.
 pub struct Surface {
     fonts: [Font; 2],
+    /// The underlying [image::RgbImage]. If you're implementing a [View], then
+    /// you'll probably want to access this.
     pub img: RgbImage,
 }
 
 impl Surface {
+    /// Create a new surface with the given dimensions.
     pub fn new(x_size: u32, y_size: u32) -> Result<Surface> {
         let roboto_data = fs::read(Surface::font_path("Roboto-Regular.ttf")?)
             .with_context(|| format!("Can't read Roboto-Regular.ttf"))?;
@@ -69,29 +151,39 @@ impl Surface {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+/// A sizing hing for calculating the bounds of a [View]. See the remarks on
+/// [View] for how to interpret this.
 pub enum SizingHint {
-    // The view should size itself to its own optimal size.
+    /// The view should size itself to its own optimal size.
     Optimal,
 
-    // If the view had infinite space, then how would it size itself?
+    /// If the view had infinite space, then how would it size itself?
     InfiniteSpace,
     
-    // If there were no space at all, how much space would the view take up?
+    /// If there were no space at all, how much space would the view take up?
     ZeroSpace,
 }
 
 #[derive(Clone, Copy, Debug)]
+/// The bounds of a [View].
 pub struct Bounds {
+    /// The width in pixels.
     pub width: u32,
+    /// The height in pixels.
     pub height: u32,
+    /// For bounds calculation: how should a view size itself.
     pub hint: SizingHint,
 }
 
 impl Bounds {
+    /// New bounds with the given dimensions.
+    ///
+    /// The resulting bounds will have [SizingHint::Optimal].
     pub fn new(width: u32, height: u32) -> Self {
         Bounds { width, height, hint: SizingHint::Optimal }
     }
 
+    /// Create a copy of the current bounds, but adjust the width.
     pub fn width_adjusted(&self, width: u32) -> Self {
         Bounds {
             width,
@@ -100,6 +192,7 @@ impl Bounds {
         }
     }
 
+    /// Create a copy of the current bounds, but adjust the height.
     pub fn height_adjusted(&self, height: u32) -> Self {
         Bounds {
             width: self.width,
@@ -108,6 +201,8 @@ impl Bounds {
         }
     }
 
+    /// Create a copy of the current bounds, but set the sizing hint to
+    /// [SizingHint::Zero].
     pub fn zero_hinted(&self) -> Self {
         Bounds {
             width: self.width,
@@ -116,6 +211,8 @@ impl Bounds {
         }
     }
 
+    /// Create a copy of the current bounds, but set the sizing hint to
+    /// [SizingHint::Optimal].
     pub fn optimally_hinted(&self) -> Self {
         Bounds {
             width: self.width,
@@ -124,6 +221,8 @@ impl Bounds {
         }
     }
 
+    /// Create a copy of the current bounds, but set the sizing hint to
+    /// [SizingHint::Infinite].
     pub fn infinitely_hinted(&self) -> Self {
         Bounds {
             width: self.width,
@@ -132,6 +231,8 @@ impl Bounds {
         }
     }
 
+    /// Create new bounds with the current sizing hint but completely different
+    /// dimensions.
     pub fn copy_hint(&self, width: u32, height: u32) -> Self {
         Bounds {
             width,
@@ -172,6 +273,7 @@ impl PartialEq for Bounds {
 }
 
 #[derive(Copy, Clone, Debug)]
+/// The padding of a [View].
 pub struct Padding {
     left: u32,
     right: u32,
@@ -180,6 +282,7 @@ pub struct Padding {
 }
 
 impl Padding {
+    /// New padding, completely set to zero on all edges.
     fn zero() -> Padding {
         Padding {
             left: 0,
@@ -189,13 +292,14 @@ impl Padding {
         }
     }
 
-    // Bounds for this padding, where width equals left and right padding and
-    // height equals top and bottom padding.
+    /// Bounds for this padding, where width equals left and right padding and
+    /// height equals top and bottom padding.
     fn bounds(&self) -> Bounds {
         Bounds::new(self.left + self.right, self.top + self.bottom)
     }
 }
 
+/// Specify the edge of a view.
 pub enum Edge {
     Left,
     Right,
@@ -203,17 +307,61 @@ pub enum Edge {
     Bottom,
 }
 
+/// The basic methods that every view must implement.
 pub trait View {
+    /// Calculate the bounds of this view. Access to the [Surface] is provided
+    /// in case the view needs to know its bounds or access other surface-level
+    /// data such as fonts.
+    ///
+    /// The given [Bounds] are called `suggested_bounds` for a reason: a view is
+    /// generally free to size itself however it wants. We do expect it to do
+    /// its best to stay within the suggested bounds, of course. But if an image
+    /// is 100 pixels width and 100 pixels high, then we don't expect the view
+    /// to crop or resize the image if the suggested bounds are 50x50. It's the
+    /// callers to job to verify that everything fits within the given
+    /// dimensions.
+    ///
+    /// In addition to a suggestion for the width and height, the suggested
+    /// bounds also contain a sizing hint. The sizing hint can be zero, optimal,
+    /// or infinite (see [SizingHint]). The view should use this sizing hint to
+    /// decide how much space to take up, if it's flexible.
+    ///
+    /// An image, for example, is not usually flexible. A [Spacer], however,
+    /// might be very flexible: for zero-hinted suggested bounds, it may decide
+    /// to collapse all the way down to 0x0 pixels. In an optimally- or
+    /// infinitely-hinted scenario, it will take up all the suggested space.
+    ///
+    /// The difference between zero-hinted and optimally-/infinitely-hinted is
+    /// pretty clear: in a zero-hinted scenario, the view should try to take up
+    /// as little space as possible. The optimally-hinted vs. infinitely-hinted
+    /// cases are not as intuitive: in the optimally-hinted case, the view
+    /// should take up exactly as much space as it requires to display its
+    /// content as intended. In the infinitely-hinted scenario, it's free to
+    /// take up even more space, if it makes sense for that particular view.
+    ///
+    /// Views should expect `bounds` to be called multiple times before a call
+    /// to `draw`. Usually these calls will have different sizing hints. This is
+    /// because [VStack] and [HStack], for example, will try to determine which
+    /// of its child views are the most and least flexible to partition their
+    /// available space optimally.
     fn bounds(&self, surface: &Surface, suggested_bounds: Bounds) -> Bounds;
-    // `suggested_bounds` really is only a suggestion. Usually, the parent view
-    // will have called `bounds` before `draw` to get an idea of what bounds a
-    // subview will choose for itself given the suggestion.
+
+    /// Draw the contents of this view to the given [Surface] at the given
+    /// coordinates. Try to stick to the suggested bounds, although those are
+    /// really just a suggestion, see [bounds] for more information.
     fn draw(&self, surface: &mut Surface, x: u32, y: u32, suggested_bounds: Bounds);
 
-    // Abstract methods for reading and replacing the padding data for a view. 
+    /// Read the padding data for this view. This is usually really just a
+    /// getter.
     fn padding_data(&self) -> Padding;
+
+    /// Set the padding data for this view. This is usually really just a
+    /// setter.
     fn set_padding_data(&mut self, padding: Padding);
 
+    /// Modify the current padding by setting the padding for `edge` to `size`
+    /// pixels. This will replace the padding for the given [Edge], but not
+    /// modify the padding for all other edges.
     fn padding(&mut self, edge: Edge, size: u32) {
         let mut new_padding = self.padding_data();
         match edge {
@@ -227,12 +375,29 @@ pub trait View {
     }
 }
 
+/// Horizontal alignment.
 pub enum HAlign {
     Left,
     Center,
     Right,
 }
 
+/// A vertical stack of views.
+///
+/// See the module-level documentation for usage examples.
+///
+/// The VStack will distribute space to all its child views as fairly as it can:
+/// it tries to divide the available space so the distribution matches the child
+/// views' willingness to "flex", i.e., how much they can size up/down. For
+/// example: an image or text is not very flexible -- it takes as much space as
+/// it takes to render those -- but a [Spacer] is maximally flexible: it can
+/// scale down to zero and up to an arbitrary size.
+///
+/// You can use [align] to set the horizontal alignment of child views (see
+/// [HAlign]). [spacing] determines how much space to leave between the elements
+/// of a VStack.
+///
+/// Access the `views` field directly to manage the child views.
 pub struct VStack {
     pub views: Vec<Box<dyn View>>,
     pub spacing: u32,
@@ -241,6 +406,7 @@ pub struct VStack {
 }
 
 impl VStack {
+    /// Create a new vertical stack. This sets the alignment to [HAlign::Left].
     pub fn new() -> VStack {
         VStack {
             views: Vec::new(),
@@ -417,12 +583,29 @@ impl View for VStack {
     }
 }
 
+/// Vertical alignment.
 pub enum VAlign {
     Top,
     Center,
     Bottom,
 }
 
+/// A horizontal stack of views.
+///
+/// See the module-level documentation for usage examples.
+///
+/// The HStack will distribute space to all its child views as fairly as it can:
+/// it tries to divide the available space so the distribution matches the child
+/// views' willingness to "flex", i.e., how much they can size up/down. For
+/// example: an image or text is not very flexible -- it takes as much space as
+/// it takes to render those -- but a [Spacer] is maximally flexible: it can
+/// scale down to zero and up to an arbitrary size.
+///
+/// You can use [align] to set the vertical alignment of child views (see
+/// [VAlign]). [spacing] determines how much space to leave between the elements
+/// of a VStack.
+///
+/// Access the `views` field directly to manage the child views.
 pub struct HStack {
     pub views: Vec<Box<dyn View>>,
     pub spacing: u32,
@@ -598,19 +781,26 @@ enum Direction {
     Vertical,
 }
 
+/// A spacer takes up all the available space while being maximally flexible: it
+/// will never cut into space that other views require, but will fill all truly
+/// available space.
+///
+/// Each spacer is flexible in one direction -- horizontally or vertically --
+/// and takes up zero space in the other.
+/// 
+/// It's usually used in conjunction with layout views such as [VStack] and
+/// [HStack].
 pub struct Spacer {
     direction: Direction,
 }
 
 impl Spacer {
-    pub fn new() -> Self {
-        Spacer { direction: Direction::Vertical }
-    }
-
+    /// Create a new horizontal spacer.
     pub fn horizontal() -> Self {
         Spacer { direction: Direction::Horizontal }
     }
 
+    /// Create a new vertical spacer.
     pub fn vertical() -> Self {
         Spacer { direction: Direction::Vertical }
     }
@@ -643,13 +833,27 @@ impl View for Spacer {
     }
 }
 
+/// Renders text.
+///
+/// [Text] currently supports arbitrary font sizes and font wrapping. The choice
+/// of fonts is limited (TODO: expand this).
 pub struct Text {
+    /// The text to render.
     pub text: String,
+
+    /// The font size to use.
     pub size: f32,
+    
+    /// The font index (TODO: expand on this).
     pub font_index: usize,
-    padding: Padding,
-    // TODO: Maybe nicer to hide this behind a setter or something?
+
+    /// Wrap text to best fit the width of the suggested bounds. This wraps on
+    /// word boundaries. To really fit the suggested bounds, you'll probably
+    /// want to reduce font sizes until [bounds] returns something that you're
+    /// happy with.
     pub wrap_text: bool,
+
+    padding: Padding,
 }
 
 impl Text {
@@ -747,12 +951,15 @@ impl View for Text {
     }
 }
 
+/// Renders an image.
 pub struct Image {
     image_data: RgbImage,
     padding: Padding,
 }
 
 impl Image {
+    /// Create a new image from the given reader ([std::io::Read]). The image
+    /// has to be a PNG.
     pub fn from_data<R: Read + Seek>(data: R) -> Result<Image> {
         let img = image::ImageReader::with_format(
             BufReader::new(data),
