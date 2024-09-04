@@ -19,6 +19,9 @@
 //! open-epaper-gen --module news-headlines --tag 000002186fd53b13
 //! ```
 //!
+//! open-epaper-gen expects both the `resources` folder as well as its config
+//! file to be in the current working directory.
+//!
 //! ## Modules
 //!
 //! As of now, there is only one module. See "Adding a New Module" if you want

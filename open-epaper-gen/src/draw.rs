@@ -141,8 +141,7 @@ impl Surface {
     }
 
     fn font_path(font: &str) -> Result<String> {
-        Ok(std::env::current_exe()?
-            .parent().ok_or(anyhow!("Current executable path has no parent."))?
+        Ok(std::env::current_dir()?
             .join("resources")
             .join(font)
             .to_str().ok_or(anyhow!("Can't convert path to string."))?

@@ -124,8 +124,7 @@ struct NewsOutlet {
 }
 
 fn logo_path(logo: &str) -> Result<String> {
-    Ok(std::env::current_exe()?
-        .parent().ok_or(anyhow!("Current executable path has no parent."))?
+    Ok(std::env::current_dir()?
         .join("resources")
         .join("news_headlines")
         .join(logo)
