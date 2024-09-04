@@ -276,8 +276,9 @@ fn main() -> Result<()> {
     let res = client.post(format!("http://{}/imgupload", settings.epaper_link_host))
         .multipart(form)
         .send()?;
-    
-    // TODO: Error checking.
+    if !res.status().is_success() {
+        bail!("Open ePaper Link AP responded with error: {:?}", res.status());
+    }
 
     Ok(())
 }

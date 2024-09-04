@@ -271,6 +271,22 @@ impl PartialEq for Bounds {
     }
 }
 
+impl PartialOrd for Bounds {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        if self.height == other.height && self.width == other.width {
+            Some(std::cmp::Ordering::Equal)
+        } else {
+            let area_self = self.height * self.width;
+            let area_other = other.height * other.width;
+            if area_self > area_other {
+                Some(std::cmp::Ordering::Greater)
+            } else {
+                Some(std::cmp::Ordering::Less)
+            }
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 /// The padding of a [View].
 pub struct Padding {

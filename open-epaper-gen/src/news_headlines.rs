@@ -21,6 +21,11 @@ pub struct NewsHeadlines {
 impl InfoView for NewsHeadlines {
     fn generate(&self, surface: &mut Surface) -> Result<()> {
         let surface_bounds = surface.bounds().clone();
+
+        if surface_bounds.width != 296 || surface_bounds.height != 128 {
+            bail!("Currently, NewsHeadlines only supports displays with \
+                  296x128 resolution");
+        }
     
         let news_outlets = vec![
             NewsOutlet{
@@ -110,6 +115,10 @@ impl InfoView for NewsHeadlines {
         screen.views.push(Box::new(headline));
         screen.views.push(Box::new(Spacer::vertical()));
         screen.views.push(Box::new(bottom_bar));
+
+        if screen.bounds(surface, surface_bounds) > surface_bounds {
+            bail!("Cannot fit the current view into the given space");
+        }
 
         screen.draw(surface, 0, 0, surface_bounds);
 
