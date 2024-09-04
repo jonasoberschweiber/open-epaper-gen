@@ -13,13 +13,13 @@ use rand::{Rng};
 use log::{info};
 
 use crate::draw::{Surface, VStack, VAlign, HStack, Text, Edge, Spacer, View, Image, Font};
-use crate::modules::InfoView;
+use crate::modules::{InfoView, ViewOptions};
 
 pub struct NewsHeadlines {
 }
 
 impl InfoView for NewsHeadlines {
-    fn generate(&self, surface: &mut Surface) -> Result<()> {
+    fn generate(&self, surface: &mut Surface) -> Result<ViewOptions> {
         let surface_bounds = surface.bounds().clone();
 
         if surface_bounds.width != 296 || surface_bounds.height != 128 {
@@ -122,7 +122,9 @@ impl InfoView for NewsHeadlines {
 
         screen.draw(surface, 0, 0, surface_bounds);
 
-        Ok(())
+        Ok(ViewOptions{
+            ttl: Some(5), // minutes
+        })
     }
 }
 

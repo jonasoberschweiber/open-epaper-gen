@@ -253,7 +253,7 @@ fn main() -> Result<()> {
             format!("Could not create surface {:?}x{:?}", surface_width, surface_height)
         })?;
 
-    module.generate(&mut surface)
+    let options = module.generate(&mut surface)
         .with_context(|| format!("Module {:?} reported an error", cli.module))?;
 
     if cli.jpeg.is_some() {
@@ -267,10 +267,17 @@ fn main() -> Result<()> {
     surface.img.save_with_format(temp_jpeg.path(), ImageFormat::Jpeg)?;
 
     let client = reqwest::blocking::Client::new();
-    let form = multipart::Form::new()
+    let mut form = multipart::Form::new()
         .text("mac", tag_mac.clone())
-        .text("dither", "0")
-        .file("test", temp_jpeg.path())?;
+        .text("dither", "0");
+
+    if options.ttl.is_some() {
+        let minutes = options.ttl.unwrap();
+        form = form.text("ttl", format!("{}", minutes));
+    }
+
+    form = form.file("test", temp_jpeg.path())?;
+
 
     info!("Sending request to open epaper link at {:?}", settings.epaper_link_host);
     let res = client.post(format!("http://{}/imgupload", settings.epaper_link_host))
