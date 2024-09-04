@@ -18,11 +18,15 @@ enum Xtask {
     /// Build the app.
     Build(BuildOptions),
 
-    /// Run the app -- similar to cargo run.
-    Run(RunOptions),
-
     /// Build the Docker container for open-epaper-gen. 
     Package,
+
+    /// Cut a new release. Right now that just means pushing the Docker image up
+    /// to GHCR.
+    Release,
+
+    /// Run the app -- similar to cargo run.
+    Run(RunOptions),
 }
 
 #[derive(Debug, Args)]
@@ -51,8 +55,9 @@ fn main() -> anyhow::Result<()> {
 
     match cmd {
         Xtask::Build(options) => cmd_build(options),
-        Xtask::Run(options) => cmd_run(options),
         Xtask::Package => cmd_package(),
+        Xtask::Release => cmd_release(),
+        Xtask::Run(options) => cmd_run(options),
     }
 }
 
@@ -228,11 +233,27 @@ fn cmd_package() -> Result<()> {
 
     for tag in docker_tags()? {
         command.arg(format!("--tag=open-epaper-gen:{}", tag));
+        command.arg(format!("--tag=ghcr.io/jonasoberschweiber/open-epaper-gen:{}", tag));
     }
 
     command.current_dir(meta.workspace_root.clone());
 
     command.output_nocapture()
+}
+
+fn cmd_release() -> Result<()> {
+    cmd_package()?;
+
+    println!("Pushing image up to GHCR...");
+
+    for tag in docker_tags()? {
+        let mut command = Command::new("docker");
+        command.arg("push");
+        command.arg(format!("ghcr.io/jonasoberschweiber/open-epaper-gen:{}", tag));
+        command.output_nocapture()?;
+    }
+
+    Ok(())
 }
 
 trait CommandNoCapture {
