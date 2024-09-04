@@ -12,7 +12,7 @@ use feed_rs::parser;
 use rand::{Rng};
 use log::{info};
 
-use crate::draw::{Surface, VStack, VAlign, HStack, Text, Edge, Spacer, View, Image};
+use crate::draw::{Surface, VStack, VAlign, HStack, Text, Edge, Spacer, View, Image, Font};
 use crate::modules::InfoView;
 
 pub struct NewsHeadlines {
@@ -78,7 +78,7 @@ impl InfoView for NewsHeadlines {
             .content;
         
         let mut screen = VStack::new();
-        let mut headline = Text::new(headline_text.to_string(), 20.0, 1);
+        let mut headline = Text::new(headline_text.to_string(), 20.0, Font::PlayfairDisplay);
         headline.wrap_text = true;
         headline.padding(Edge::Top, 10);
         headline.padding(Edge::Left, 10);
@@ -110,7 +110,7 @@ impl InfoView for NewsHeadlines {
 
         bottom_bar.views.push(Box::new(logo));
         bottom_bar.views.push(Box::new(Spacer::horizontal()));
-        bottom_bar.views.push(Box::new(Text::new(Local::now().format("%m-%d %H:%M").to_string(), 13.0, 0)));
+        bottom_bar.views.push(Box::new(Text::new(Local::now().format("%m-%d %H:%M").to_string(), 13.0, Font::Roboto)));
 
         screen.views.push(Box::new(headline));
         screen.views.push(Box::new(Spacer::vertical()));

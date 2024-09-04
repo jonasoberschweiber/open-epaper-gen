@@ -92,7 +92,7 @@
 //! ```
 
 use fontdue::layout::{CoordinateSystem, Layout, TextStyle};
-use fontdue::{Font};
+use fontdue;
 use image::{ImageBuffer, RgbImage, ImageFormat};
 use std::io::{BufReader, Read, Seek};
 use std::cmp;
@@ -103,7 +103,7 @@ use anyhow::{Context, Result, anyhow};
 /// A surface to draw on. This is really just a wrapper for [image::RgbImage],
 /// which you can access using the [img] field.
 pub struct Surface {
-    fonts: [Font; 2],
+    fonts: FontCache,
     /// The underlying [image::RgbImage]. If you're implementing a [View], then
     /// you'll probably want to access this.
     pub img: RgbImage,
@@ -114,13 +114,17 @@ impl Surface {
     pub fn new(x_size: u32, y_size: u32) -> Result<Surface> {
         let roboto_data = fs::read(Surface::font_path("Roboto-Regular.ttf")?)
             .with_context(|| format!("Can't read Roboto-Regular.ttf"))?;
-        let roboto = Font::from_bytes(roboto_data, fontdue::FontSettings::default())
+        let roboto = fontdue::Font::from_bytes(roboto_data, fontdue::FontSettings::default())
             .map_err(|str| anyhow!(str))?;
 
         let playfair_data = fs::read(Surface::font_path("PlayfairDisplay-Regular.ttf")?)
             .with_context(|| format!("Can't read PlayfairDisplay-Regular.ttf"))?;
-        let playfair = Font::from_bytes(playfair_data, fontdue::FontSettings::default())
+        let playfair = fontdue::Font::from_bytes(playfair_data, fontdue::FontSettings::default())
             .map_err(|str| anyhow!(str))?;
+
+        let mut font_cache = FontCache::new();
+        font_cache.add(Font::Roboto, roboto);
+        font_cache.add(Font::PlayfairDisplay, playfair);
 
         let mut img: RgbImage = ImageBuffer::new(x_size, y_size);
         let white = image::Rgb([255, 255, 255]);
@@ -131,7 +135,7 @@ impl Surface {
         }
 
         Ok(Surface {
-            fonts: [roboto, playfair],
+            fonts: font_cache,
             img: img,
         })
     }
@@ -149,9 +153,57 @@ impl Surface {
     }
 }
 
+/// Internal cache for fonts. Used in [Surface]. This stores the actual fonts
+/// ([fontdue::Font]) and their names ([Font]) in two separate vectors. The
+/// reason for this is that the fontdue API expects a slice of [fontdue::Font]
+/// and an index into that slice for selecting a font. Storing them separately
+/// in here makes it easier to use with the fontdue APIs.
+struct FontCache {
+    fonts: Vec<fontdue::Font>,
+    font_names: Vec<Font>,
+}
+
+impl FontCache {
+    fn new() -> Self {
+        FontCache{
+            fonts: vec![],
+            font_names: vec![],
+        }
+    }
+
+    fn add(&mut self, name: Font, font: fontdue::Font) {
+        self.fonts.push(font);
+        self.font_names.push(name);
+    }
+
+    fn fonts(&self) -> &[fontdue::Font] {
+        self.fonts.as_slice()
+    }
+
+    fn font(&self, name: Font) -> &fontdue::Font {
+        let font_index = self.font_names.iter().position(|&n| n == name).unwrap();
+        &self.fonts[font_index]
+    }
+
+    /// Construct a new [fontdue::layout::TextStyle] with the correct set of
+    /// fonts and the correct font index. Used by other views, not external
+    /// consumers of the module.
+    fn text_style<'a>(&self, text: &'a str, size: f32, font: Font) -> TextStyle<'a> {
+        let font_index = self.font_names.iter().position(|&n| n == font).unwrap(); 
+        TextStyle::new(text, size, font_index)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
+/// The set of fonts that are available to use.
+pub enum Font {
+    Roboto,
+    PlayfairDisplay,
+}
+
 /// A sizing hing for calculating the bounds of a [View]. See the remarks on
 /// [View] for how to interpret this.
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum SizingHint {
     /// The view should size itself to its own optimal size.
     Optimal,
@@ -851,7 +903,7 @@ impl View for Spacer {
 /// Renders text.
 ///
 /// [Text] currently supports arbitrary font sizes and font wrapping. The choice
-/// of fonts is limited (TODO: expand this).
+/// of fonts is limited, see [Font]. 
 pub struct Text {
     /// The text to render.
     pub text: String,
@@ -859,8 +911,8 @@ pub struct Text {
     /// The font size to use.
     pub size: f32,
     
-    /// The font index (TODO: expand on this).
-    pub font_index: usize,
+    /// The font to use.
+    pub font: Font,
 
     /// Wrap text to best fit the width of the suggested bounds. This wraps on
     /// word boundaries. To really fit the suggested bounds, you'll probably
@@ -872,11 +924,11 @@ pub struct Text {
 }
 
 impl Text {
-    pub fn new(text: String, size: f32, font_index: usize) -> Text {
+    pub fn new(text: String, size: f32, font: Font) -> Text {
         Text {
             text,
             size,
-            font_index,
+            font,
             padding: Padding::zero(),
             wrap_text: false,
         }
@@ -896,8 +948,8 @@ impl View for Text {
             self.set_up_wrapping(&mut layout, suggested_bounds);
         }
         layout.append(
-            &surface.fonts,
-            &TextStyle::new(self.text.as_str(), self.size, self.font_index),
+            surface.fonts.fonts(),
+            &surface.fonts.text_style(self.text.as_str(), self.size, self.font),
         );
 
         // Find the extent on the X and Y axes.
@@ -928,17 +980,19 @@ impl View for Text {
             self.set_up_wrapping(&mut layout, suggested_bounds);
         }
         layout.append(
-            &surface.fonts,
-            &TextStyle::new(self.text.as_str(), self.size, self.font_index),
+            surface.fonts.fonts(),
+            &surface.fonts.text_style(self.text.as_str(), self.size, self.font),
         );
         let glyphs = layout.glyphs();
 
         let pad_origin_x = origin_x + self.padding_data().left;
         let pad_origin_y = origin_y + self.padding_data().top;
 
+        let font_data = surface.fonts.font(self.font);
+
         for glyph in glyphs {
             let (metrics, bitmap) =
-                surface.fonts[self.font_index].rasterize_indexed(glyph.key.glyph_index, glyph.key.px);
+                font_data.rasterize_indexed(glyph.key.glyph_index, glyph.key.px);
 
             for y in 0..metrics.height {
                 for x in 0..metrics.width {
